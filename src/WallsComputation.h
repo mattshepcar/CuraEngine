@@ -34,8 +34,9 @@ public:
      * which leads to better results for a smaller WallsComputation::line_width_0 than WallsComputation::line_width_x and when printing the outer wall last.
      *
      * \param layer The layer for which to generate the insets.
+     * \param layer_nr A number indicating the layer of the mesh uniquely (With or without taking raft layers into account)
      */ 
-    void generateInsets(SliceLayer* layer);
+    void generateInsets(SliceLayer* layer, size_t layer_nr);
 
 private:
     /*!

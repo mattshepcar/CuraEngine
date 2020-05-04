@@ -124,11 +124,25 @@ void WallsComputation::generateInsets(SliceLayerPart* part)
  *
  * generateInsets only reads and writes data for the current layer
  */
-void WallsComputation::generateInsets(SliceLayer* layer)
+void WallsComputation::generateInsets(SliceLayer* layer, size_t layer_nr)
 {
     for(unsigned int partNr = 0; partNr < layer->parts.size(); partNr++)
     {
         generateInsets(&layer->parts[partNr]);
+    }
+    
+    if (settings.get<bool>("alternate_wall_direction"))
+    {
+        for (SliceLayerPart& part : layer->parts)
+        {
+            for (size_t inset_idx = layer_nr % 2; inset_idx < part.insets.size(); inset_idx += 2)
+            {
+                for (PolygonRef poly : part.insets[inset_idx])
+                {
+                    poly.reverse();
+                }
+            }
+        }
     }
 
     const bool remove_parts_with_no_insets = !settings.get<bool>("fill_outline_gaps");
