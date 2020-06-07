@@ -169,7 +169,7 @@ bool FffPolygonGenerator::sliceModel(MeshGroup* meshgroup, TimeKeeper& timeKeepe
     }
 
     // Clear the mesh face and vertex data, it is no longer needed after this point, and it saves a lot of memory.
-    meshgroup->clear();
+    //meshgroup->clear();
 
     Mold::process(slicerList);
 
@@ -193,6 +193,28 @@ bool FffPolygonGenerator::sliceModel(MeshGroup* meshgroup, TimeKeeper& timeKeepe
     }
 
     generateMultipleVolumesOverlap(slicerList);
+
+	// non-planar
+    //generateNonPlanarLayers(slicerList);
+    for (unsigned int meshIdx = 0; meshIdx < slicerList.size(); meshIdx++)
+    {
+        Slicer* slicer = slicerList[meshIdx];
+        Mesh& mesh = scene.current_mesh_group->meshes[meshIdx];
+
+        mesh.settings.add("first_non_planar_layer", "27"); // matts - TEMPORARY!!
+        SlicerLayer nonplanarLayer;
+        size_t numLayers = slicer->layers.size();
+        size_t topLayers = mesh.settings.get<size_t>("top_layers");
+        int firstNonPlanar = mesh.settings.get<int>("first_non_planar_layer");
+        for (int layer_number = firstNonPlanar; layer_number < numLayers; layer_number++)
+            nonplanarLayer.polygons.add(slicer->layers[layer_number].polygons);
+        nonplanarLayer.polygons = nonplanarLayer.polygons.unionPolygons();
+        for (int i = 0; i < topLayers; ++i)
+            slicer->layers.push_back(SlicerLayer());
+        for (int i = 0; i < topLayers; ++i)
+            slicer->layers.push_back(nonplanarLayer);
+    }
+    // /non-planar
 
     storage.print_layer_count = 0;
     for (unsigned int meshIdx = 0; meshIdx < slicerList.size(); meshIdx++)
@@ -221,6 +243,16 @@ bool FffPolygonGenerator::sliceModel(MeshGroup* meshgroup, TimeKeeper& timeKeepe
         if (!is_support_modifier)
         {
             createLayerParts(meshStorage, slicer);
+
+            // non-planar - add to AABB tree
+            int i = storage.vertices.rows();
+            storage.vertices.conservativeResize(i + mesh.vertices.size(), 3);
+            for (auto vert : mesh.vertices)
+                storage.vertices.row(i++) << vert.p.x, vert.p.y, vert.p.z;
+            i = storage.faces.rows();
+            storage.faces.conservativeResize(i + mesh.faces.size(), 3);
+            for (auto face : mesh.faces)
+                storage.faces.row(i++) << face.vertex_index[0], face.vertex_index[1], face.vertex_index[2];
         }
 
         // Do not add and process support _modifier_ meshes further, and ONLY skip support _modifiers_. They have been
@@ -279,6 +311,13 @@ bool FffPolygonGenerator::sliceModel(MeshGroup* meshgroup, TimeKeeper& timeKeepe
 
         Progress::messageProgress(Progress::Stage::PARTS, meshIdx + 1, slicerList.size());
     }
+
+	// non-planar - initialise AABB tree
+    storage.mesh.init(storage.vertices, storage.faces);
+
+    // Clear the mesh face and vertex data, it is no longer needed after this point, and it saves a lot of memory.
+    meshgroup->clear();
+
     return true;
 }
 
@@ -341,6 +380,13 @@ void FffPolygonGenerator::slices2polygons(SliceDataStorage& storage, TimeKeeper&
     AreaSupport::generateSupportAreas(storage);
     TreeSupport tree_support_generator(storage);
     tree_support_generator.generateSupportAreas(storage);
+
+    // matts - add non-planar layers back in
+    for (SliceMeshStorage& mesh : storage.meshes)
+    {
+        mesh.layer_nr_first_non_planar = mesh.layers.size();
+        mesh.layers.insert(mesh.layers.end(), mesh.nonPlanarLayers.begin(), mesh.nonPlanarLayers.end());
+    }
 
     // we need to remove empty layers after we have processed the insets
     // processInsets might throw away parts if they have no wall at all (cause it doesn't fit)
@@ -501,6 +547,21 @@ void FffPolygonGenerator::processBasicWallsSkinInfill(SliceDataStorage& storage,
             }
 #pragma omp atomic
                 processed_layer_count++;
+        }
+    }
+
+    // move non-planar layers to separate list
+    size_t firstNonPlanar = mesh.settings.get<size_t>("first_non_planar_layer");
+    size_t topLayers = mesh.settings.get<size_t>("top_layers");
+    mesh.nonPlanarLayers.assign(mesh.layers.end() - topLayers, mesh.layers.end());
+    mesh.layers.resize(mesh.layers.size() - topLayers * 2);
+    // matts - remove skin and insets because the non planar layers will add these
+    for (size_t layer_number = firstNonPlanar; layer_number < mesh.layers.size(); layer_number++)
+    {
+        for (auto& part : mesh.layers[layer_number].parts)
+        {
+            part.skin_parts.clear();
+            part.insets.clear();
         }
     }
 }

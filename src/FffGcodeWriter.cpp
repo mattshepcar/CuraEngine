@@ -1363,6 +1363,8 @@ void FffGcodeWriter::addMeshPartToGCode(const SliceDataStorage& storage, const S
 
     bool added_something = false;
 
+    gcode_layer.setNonPlanar(gcode_layer.getLayerNr() >= mesh.layer_nr_first_non_planar);
+
     if (mesh.settings.get<bool>("infill_before_walls"))
     {
         added_something = added_something | processInfill(storage, gcode_layer, mesh, extruder_nr, mesh_config, part);
@@ -1391,6 +1393,8 @@ void FffGcodeWriter::addMeshPartToGCode(const SliceDataStorage& storage, const S
     }
 
     gcode_layer.setIsInside(false);
+
+    gcode_layer.setNonPlanar(false);
 }
 
 bool FffGcodeWriter::processInfill(const SliceDataStorage& storage, LayerPlan& gcode_layer, const SliceMeshStorage& mesh, const size_t extruder_nr, const PathConfigStorage::MeshPathConfigs& mesh_config, const SliceLayerPart& part) const

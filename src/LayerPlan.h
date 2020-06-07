@@ -250,6 +250,7 @@ private:
     std::vector<Point> layer_start_pos_per_extruder; //!< The starting position of a layer for each extruder
     std::vector<bool> has_prime_tower_planned_per_extruder; //!< For each extruder, whether the prime tower is planned yet or not.
     std::optional<Point> last_planned_position; //!< The last planned XY position of the print head (if known)
+    std::optional<coord_t> last_planned_height; //!< The last planned Z position of the print head (if known)
 
     std::string current_mesh; //<! A unique ID for the mesh of the last planned move.
 
@@ -274,6 +275,7 @@ private:
     coord_t comb_move_inside_distance;  //!< Whenever using the minimum boundary for combing it tries to move the coordinates inside by this distance after calculating the combing.
     Polygons bridge_wall_mask; //!< The regions of a layer part that are not supported, used for bridging
     Polygons overhang_mask; //!< The regions of a layer part where the walls overhang
+    bool non_planar; //!< Whether this is a non-planar layer
 
     const std::vector<FanSpeedLayerTimeSettings> fan_speed_layer_time_settings_per_extruder;
 
@@ -685,6 +687,17 @@ public:
      * \param starting_position Start from this coordinate.
      * */
     void optimizePaths(const Point& starting_position);
+
+    /*!
+    * Set whether to use non-planar paths
+    */
+    void setNonPlanar(bool non_planar);
+
+    /*!
+     * Get the height of a non-planar layer at a given position
+     * \param position Probe height at this position.
+     * */
+    coord_t probeHeight(const Point& position) const;
 };
 
 }//namespace cura

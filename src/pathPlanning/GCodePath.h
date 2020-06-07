@@ -41,6 +41,7 @@ public:
     bool done; //!< Path is finished, no more moves should be added, and a new path should be started instead of any appending done to this one.
 
     bool spiralize; //!< Whether to gradually increment the z position during the printing of this path. A sequence of spiralized paths should start at the given layer height and end in one layer higher.
+    std::vector<coord_t> heights; //!< Heights for non-planar path
 
     double fan_speed; //!< fan speed override for this path, value should be within range 0-100 (inclusive) and ignored otherwise
 

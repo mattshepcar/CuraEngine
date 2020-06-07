@@ -103,6 +103,7 @@ LayerPlan::LayerPlan(const SliceDataStorage& storage, LayerIndex layer_nr, coord
     size_t current_extruder = start_extruder;
     was_inside = true; // not used, because the first travel move is bogus
     is_inside = false; // assumes the next move will not be to inside a layer part (overwritten just before going into a layer part)
+    non_planar = false;
     if (Application::getInstance().current_slice->scene.current_mesh_group->settings.get<CombingMode>("retraction_combing") != CombingMode::OFF)
     {
         comb = new Comb(storage, layer_nr, comb_boundary_inside1, comb_boundary_inside2, comb_boundary_offset, travel_avoid_distance, comb_move_inside_distance);
@@ -315,6 +316,7 @@ bool LayerPlan::setExtruder(const size_t extruder_nr)
         if (start_pos_absolute || last_planned_position)
         {
             last_planned_position = start_pos;
+            last_planned_height = z;
         }
     }
     return true;
@@ -390,6 +392,12 @@ GCodePath& LayerPlan::addTravel(const Point p, const bool force_retract)
         }
         forceNewPathStart(); // force a new travel path after this first bogus move
     }
+    else if (non_planar && *last_planned_height != z)
+    {
+        // move back up to real layer height before travelling to avoid collisions
+        path->retract = true;
+        addTravel_simple(*last_planned_position, path);
+    }
     else if (force_retract && last_planned_position && !shorterThen(*last_planned_position - p, retraction_config.retraction_min_travel_distance))
     {
         // path is not shorter than min travel distance, force a retraction
@@ -454,6 +462,7 @@ GCodePath& LayerPlan::addTravel(const Point p, const bool force_retract)
                     if (path->points.empty() || vSize2(path->points.back() - comb_point) > maximum_travel_resolution * maximum_travel_resolution)
                     {
                         path->points.push_back(comb_point);
+                        path->heights.push_back(z);
                         distance += vSize(last_point - comb_point);
                         last_point = comb_point;
                     }
@@ -513,7 +522,9 @@ GCodePath& LayerPlan::addTravel_simple(Point p, GCodePath* path)
         path = getLatestPathWithConfig(configs_storage.travel_config_per_extruder[getExtruder()], SpaceFillType::None);
     }
     path->points.push_back(p);
+    path->heights.push_back(z);
     last_planned_position = p;
+    last_planned_height = z;
     return *path;
 }
 
@@ -527,12 +538,53 @@ void LayerPlan::planPrime(const float& prime_blob_wipe_length)
     forceNewPathStart();
 }
 
+void LayerPlan::setNonPlanar(bool _non_planar)
+{
+    non_planar = _non_planar;
+}
+
+coord_t LayerPlan::probeHeight(const Point& p) const
+{
+    if (non_planar)
+    {
+        Eigen::Vector3d pos, dir;
+        pos << p.X, p.Y, z;
+        dir << 0, 0, -1;
+        igl::Hit hit;
+        if (storage.mesh.intersect_ray(storage.vertices, storage.faces, pos, dir, hit))
+            return z - coord_t(hit.t);
+    }
+    return z;
+}
+
 void LayerPlan::addExtrusionMove(Point p, const GCodePathConfig& config, SpaceFillType space_fill_type, const Ratio& flow, bool spiralize, Ratio speed_factor, double fan_speed)
 {
     GCodePath* path = getLatestPathWithConfig(config, space_fill_type, flow, spiralize, speed_factor);
+    coord_t h = z;
+    if (non_planar)
+    {
+        Point p0 = *last_planned_position;
+        Point dir = p - p0;
+        coord_t len = vSize(dir);
+        int numSteps = len / 250;
+        if (numSteps > 1)
+        {
+            coord_t stepLen = len / numSteps;
+            dir = dir * stepLen / len;
+            for (int i = 1; i < numSteps; ++i)
+            {
+                p0 += dir;
+                path->points.push_back(p0);
+                path->heights.push_back(probeHeight(p0));
+            }
+        }
+        h = probeHeight(p);
+    }
     path->points.push_back(p);
+    path->heights.push_back(h);
     path->setFanSpeed(fan_speed);
     last_planned_position = p;
+    last_planned_height = h;
 }
 
 void LayerPlan::addPolygon(ConstPolygonRef polygon, int start_idx, const GCodePathConfig& config, WallOverlapComputation* wall_overlap_computation, coord_t wall_0_wipe_dist, bool spiralize, const Ratio& flow_ratio, bool always_retract)
@@ -1671,6 +1723,7 @@ void LayerPlan::writeGCode(GCodeExport& gcode)
                     for(unsigned int point_idx = 0; point_idx < path.points.size(); point_idx++)
                     {
                         communication->sendLineTo(path.config->type, path.points[point_idx], path.getLineWidthForLayerView(), path.config->getLayerThickness(), speed);
+                        gcode.setZ(path.heights[point_idx]);
                         gcode.writeExtrusion(path.points[point_idx], speed, path.getExtrusionMM3perMM(), path.config->type, update_extrusion_offset);
                     }
                 }
@@ -1878,6 +1931,7 @@ bool LayerPlan::writePathWithCoasting(GCodeExport& gcode, const size_t extruder_
         for(size_t point_idx = 0; point_idx <= point_idx_before_start; point_idx++)
         {
             communication->sendLineTo(path.config->type, path.points[point_idx], path.getLineWidthForLayerView(), path.config->getLayerThickness(), extrude_speed);
+            gcode.setZ(path.heights[point_idx]);
             gcode.writeExtrusion(path.points[point_idx], extrude_speed, path.getExtrusionMM3perMM(), path.config->type);
         }
         communication->sendLineTo(path.config->type, start, path.getLineWidthForLayerView(), path.config->getLayerThickness(), extrude_speed);
@@ -1889,6 +1943,7 @@ bool LayerPlan::writePathWithCoasting(GCodeExport& gcode, const size_t extruder_
     {
         const Ratio coasting_speed_modifier = extruder.settings.get<Ratio>("coasting_speed");
         const Velocity speed = Velocity(coasting_speed_modifier * path.config->getSpeed() * extruder_plan.getExtrudeSpeedFactor());
+        gcode.setZ(path.heights[point_idx]);
         gcode.writeTravel(path.points[point_idx], speed);
     }
     return true;

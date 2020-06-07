@@ -95,7 +95,9 @@ void GCodeExport::preSetup(const size_t start_extruder)
     machine_buildplate_type = mesh_group->settings.get<std::string>("machine_buildplate_type");
 
     relative_extrusion = mesh_group->settings.get<bool>("relative_extrusion");
-    always_write_active_tool = mesh_group->settings.get<bool>("machine_always_write_active_tool");
+    always_write_active_tool = false;
+    if (mesh_group->settings.has("machine_always_write_active_tool"))
+        always_write_active_tool = mesh_group->settings.get<bool>("machine_always_write_active_tool");
 
     if (flavor == EGCodeFlavor::BFB)
     {

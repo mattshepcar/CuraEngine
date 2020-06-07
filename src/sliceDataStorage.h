@@ -19,6 +19,7 @@
 #include "utils/optional.h"
 #include "utils/polygon.h"
 #include "WipeScriptConfig.h"
+#include <igl/AABB.h>
 
 namespace cura 
 {
@@ -242,7 +243,10 @@ public:
     std::vector<SliceLayer> layers;
     std::string mesh_name;
 
+    std::vector<SliceLayer> nonPlanarLayers;
+
     LayerIndex layer_nr_max_filled_layer; //!< the layer number of the uppermost layer with content (modified while infill meshes are processed)
+    LayerIndex layer_nr_first_non_planar; //!< the first non-planar layer
 
     std::vector<AngleDegrees> infill_angles; //!< a list of angle values which is cycled through to determine the infill angle of each layer
     std::vector<AngleDegrees> roofing_angles; //!< a list of angle values which is cycled through to determine the roofing angle of each layer
@@ -323,6 +327,10 @@ public:
 
     std::vector<Polygons> oozeShield;        //oozeShield per layer
     Polygons draft_protection_shield; //!< The polygons for a heightened skirt which protects from warping by gusts of wind and acts as a heated chamber.
+
+    Eigen::MatrixX3d vertices;
+    Eigen::MatrixX3i faces;
+    igl::AABB<Eigen::MatrixX3d, 3> mesh;
 
     /*!
      * \brief Creates a new slice data storage that stores the slice data of the

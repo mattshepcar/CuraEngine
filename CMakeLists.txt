@@ -24,6 +24,22 @@ if(ENABLE_ARCUS)
     add_definitions(-DARCUS)
 endif()
 
+#For non-planar layers
+option(ENABLE_CGAL "Enable CGAL" OFF)
+option(ENABLE_IGL "Enable IGL" ON)
+
+if(ENABLE_CGAL)
+    message(STATUS "Building with CGAL")
+    find_package(CGAL)
+    add_definitions(-DCGAL)
+endif()
+
+if(ENABLE_IGL)
+    message(STATUS "Building with IGL")
+    find_package(LIBIGL REQUIRED)
+    add_definitions(-DLIBIGL)
+endif()
+
 #For reading image files.
 find_package(Stb REQUIRED)
 include_directories(${Stb_INCLUDE_DIRS})
@@ -279,6 +295,13 @@ endif()
 if (ENABLE_ARCUS)
     target_link_libraries(_CuraEngine Arcus)
 endif ()
+
+if(ENABLE_CGAL)
+    target_link_libraries(_CuraEngine CGAL::CGAL)
+endif()
+if(ENABLE_IGL)
+    target_link_libraries(_CuraEngine igl::core)
+endif()
 
 set_target_properties(_CuraEngine PROPERTIES COMPILE_DEFINITIONS "VERSION=\"${CURA_ENGINE_VERSION}\"")
 
