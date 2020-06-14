@@ -124,9 +124,11 @@ bool FffPolygonGenerator::sliceModel(MeshGroup* meshgroup, TimeKeeper& timeKeepe
         const coord_t variable_layer_height_max_variation = mesh_group_settings.get<coord_t>("adaptive_layer_height_variation");
         const coord_t variable_layer_height_variation_step = mesh_group_settings.get<coord_t>("adaptive_layer_height_variation_step");
         const coord_t adaptive_threshold = mesh_group_settings.get<coord_t>("adaptive_layer_height_threshold");
+        const std::vector<coord_t> exact_slices = mesh_group_settings.get<std::vector<coord_t>>("adaptive_layer_height_exact_slices");
+        const double layers_at_flat_area = mesh_group_settings.get<double>("layers_at_flat_area");
         adaptive_layer_heights = new AdaptiveLayerHeights(layer_thickness, variable_layer_height_max_variation,
-                                                          variable_layer_height_variation_step, adaptive_threshold);
-
+                                                          variable_layer_height_variation_step, adaptive_threshold,
+                                                          exact_slices, layers_at_flat_area);
         // Get the amount of layers
         slice_layer_count = adaptive_layer_heights->getLayerCount();
     }
@@ -201,18 +203,20 @@ bool FffPolygonGenerator::sliceModel(MeshGroup* meshgroup, TimeKeeper& timeKeepe
         Slicer* slicer = slicerList[meshIdx];
         Mesh& mesh = scene.current_mesh_group->meshes[meshIdx];
 
-        mesh.settings.add("first_non_planar_layer", "27"); // matts - TEMPORARY!!
-        SlicerLayer nonplanarLayer;
-        size_t numLayers = slicer->layers.size();
-        size_t topLayers = mesh.settings.get<size_t>("top_layers");
-        int firstNonPlanar = mesh.settings.get<int>("first_non_planar_layer");
-        for (int layer_number = firstNonPlanar; layer_number < numLayers; layer_number++)
-            nonplanarLayer.polygons.add(slicer->layers[layer_number].polygons);
-        nonplanarLayer.polygons = nonplanarLayer.polygons.unionPolygons();
-        for (int i = 0; i < topLayers; ++i)
-            slicer->layers.push_back(SlicerLayer());
-        for (int i = 0; i < topLayers; ++i)
-            slicer->layers.push_back(nonplanarLayer);
+        if (mesh.settings.has("first_non_planar_layer"))
+        {
+            SlicerLayer nonplanarLayer;
+                size_t numLayers = slicer->layers.size();
+                size_t topLayers = mesh.settings.get<size_t>("top_layers");
+                int firstNonPlanar = mesh.settings.get<int>("first_non_planar_layer");
+                for (int layer_number = firstNonPlanar; layer_number < numLayers; layer_number++)
+                    nonplanarLayer.polygons.add(slicer->layers[layer_number].polygons);
+                nonplanarLayer.polygons = nonplanarLayer.polygons.unionPolygons();
+                for (int i = 0; i < topLayers; ++i)
+                    slicer->layers.push_back(SlicerLayer());
+                for (int i = 0; i < topLayers; ++i)
+                    slicer->layers.push_back(nonplanarLayer);
+        }
     }
     // /non-planar
 
@@ -551,17 +555,20 @@ void FffPolygonGenerator::processBasicWallsSkinInfill(SliceDataStorage& storage,
     }
 
     // move non-planar layers to separate list
-    size_t firstNonPlanar = mesh.settings.get<size_t>("first_non_planar_layer");
-    size_t topLayers = mesh.settings.get<size_t>("top_layers");
-    mesh.nonPlanarLayers.assign(mesh.layers.end() - topLayers, mesh.layers.end());
-    mesh.layers.resize(mesh.layers.size() - topLayers * 2);
-    // matts - remove skin and insets because the non planar layers will add these
-    for (size_t layer_number = firstNonPlanar; layer_number < mesh.layers.size(); layer_number++)
+    if (mesh.settings.has("first_non_planar_layer"))
     {
-        for (auto& part : mesh.layers[layer_number].parts)
+        size_t firstNonPlanar = mesh.settings.get<size_t>("first_non_planar_layer");
+        size_t topLayers = mesh.settings.get<size_t>("top_layers");
+        mesh.nonPlanarLayers.assign(mesh.layers.end() - topLayers, mesh.layers.end());
+        mesh.layers.resize(mesh.layers.size() - topLayers * 2);
+        // matts - remove skin and insets because the non planar layers will add these
+        for (size_t layer_number = firstNonPlanar; layer_number < mesh.layers.size(); layer_number++)
         {
-            part.skin_parts.clear();
-            part.insets.clear();
+            for (auto& part : mesh.layers[layer_number].parts)
+            {
+                part.skin_parts.clear();
+                //part.insets.clear();
+            }
         }
     }
 }

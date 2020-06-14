@@ -19,11 +19,15 @@ namespace cura
 AdaptiveLayer::AdaptiveLayer(const coord_t layer_height) : layer_height(layer_height) { }
 
 AdaptiveLayerHeights::AdaptiveLayerHeights(const coord_t base_layer_height, const coord_t variation,
-                                           const coord_t step_size, const coord_t threshold)
+                                           const coord_t step_size, const coord_t threshold,
+                                           const std::vector<coord_t>& exact_slices,
+                                           const double layers_at_flat_area_mm2)
     : base_layer_height(base_layer_height)
     , max_variation(variation)
     , step_size(step_size)
     , threshold(threshold)
+    , exact_slices(exact_slices)
+    , layers_at_flat_area_mm2(layers_at_flat_area_mm2)
 {
     layers = {};
 
@@ -74,6 +78,9 @@ void AdaptiveLayerHeights::calculateLayers()
     adaptive_layer.z_position = z_level;
     previous_layer_height = adaptive_layer.layer_height;
     layers.push_back(adaptive_layer);
+
+    int prev_exact_layer = 0;
+    int next_exact_index = 0;
 
     // loop while triangles are found
     while (!triangles_of_interest.empty() || layers.size() < 2)
@@ -188,11 +195,43 @@ void AdaptiveLayerHeights::calculateLayers()
             previous_layer_height = adaptive_layer.layer_height;
             layers.push_back(adaptive_layer);
         }
+
+        if (next_exact_index < exact_slices.size() && z_level >= exact_slices[next_exact_index])
+        {
+            bool last_layer = z_level >= global_max_z;
+            int layer = layers.size() - 1;
+            while (z_level > exact_slices[next_exact_index])
+            {
+                // squash the lower layers down to fit
+                layers[layer].layer_height -= step_size;               
+                if (--layer <= prev_exact_layer)
+                    layer = layers.size() - 1;
+                z_level -= step_size;
+            }
+            previous_layer_height = layers.back().layer_height;
+            prev_exact_layer = layers.size() - 1;
+            ++next_exact_index;
+            while (next_exact_index < exact_slices.size() && z_level >= exact_slices[next_exact_index])
+                ++next_exact_index;
+            if (last_layer)
+                break;
+        }
+    }
+    z_level = 0;
+    for (auto& layer : layers)
+    {
+        z_level += layer.layer_height;
+        layer.z_position = z_level;
     }
 }
 
 void AdaptiveLayerHeights::calculateMeshTriangleSlopes()
 {
+    Settings& mesh_group_settings = Application::getInstance().current_slice->scene.current_mesh_group->settings;
+    coord_t initial_layer_height = mesh_group_settings.get<coord_t>("layer_height_0");
+    std::map<coord_t, double> slices;
+    global_max_z = 0;
+
     // loop over all mesh faces (triangles) and find their slopes
     for (const Mesh& mesh : Application::getInstance().current_slice->scene.current_mesh_group->meshes)
     {
@@ -201,6 +240,8 @@ void AdaptiveLayerHeights::calculateMeshTriangleSlopes()
         {
             continue;
         }
+
+        std::vector<double> face_areas;
 
         for (const MeshFace& face : mesh.faces)
         {
@@ -219,22 +260,84 @@ void AdaptiveLayerHeights::calculateMeshTriangleSlopes()
             max_z = std::max(max_z, p1.z);
             max_z = std::max(max_z, p2.z);
 
+            global_max_z = std::max(global_max_z, coord_t(ceil(max_z * 1000.0)));
+
             // calculate the angle of this triangle in the z direction
             const FPoint3 n = FPoint3(p1 - p0).cross(p2 - p0);
             const FPoint3 normal = n.normalized();
             AngleRadians z_angle = std::acos(std::abs(normal.z));
 
+            double flat_area = 0.0;
+
             // prevent flat surfaces from influencing the algorithm
             if (z_angle == 0)
             {
+                flat_area = std::abs(.5 * (p0.x * (p1.y - p2.y) + p1.x * (p2.y - p0.y) + p2.x * (p0.y - p1.y)));
                 z_angle = M_PI;
             }
 
-            face_min_z_values.push_back(min_z * 1000);
-            face_max_z_values.push_back(max_z * 1000);
+            face_min_z_values.push_back(floor(min_z * 1000.0));
+            face_max_z_values.push_back(ceil(max_z * 1000.0));
             face_slopes.push_back(z_angle);
+            if (layers_at_flat_area_mm2 > 0.0)
+                face_areas.push_back(flat_area);            
+        }
+
+        for (int i = 0, n = face_areas.size(); i != n; ++i)
+        {
+            double area = face_areas[i];
+            if (area > 0.0)
+            {
+                face_areas[i] = 0.0; // mark as processed
+                std::vector<int> connections;
+                connections.push_back(i);
+                while (!connections.empty())
+                {
+                    int face = connections.back();
+                    connections.pop_back();
+                    for (int connection : mesh.faces[face].connected_face_index)
+                    {
+                        if (connection >= 0 && face_areas[connection] > 0.0)
+                        {
+                            area += face_areas[connection];
+                            face_areas[connection] = 0.0f; // mark as processed
+                            connections.push_back(connection);
+                        }
+                    }
+                }
+                if (area >= layers_at_flat_area_mm2)
+                {
+                    coord_t z = mesh.vertices[mesh.faces[i].vertex_index[0]].p.z;
+                    z += step_size / 2;
+                    z -= z % step_size;
+                    if (z > initial_layer_height)
+                        slices[z] += area;
+                }
+            }
         }
     }
+ 
+    const coord_t minimum_layer_height = *std::min_element(allowed_layer_heights.begin(), allowed_layer_heights.end());    
+    coord_t lastZ = 0;
+    double lastArea = 0.0;
+    for (auto slice : slices)
+    {
+        coord_t z = slice.first;
+        double area = slice.second;
+        // if two flat areas are closer together than the minimum layer height
+        if (lastZ > 0 && z - lastZ < minimum_layer_height)
+        {
+            // choose the one with the largest area
+            if (area < lastArea)
+                continue;
+            exact_slices.pop_back();
+        }
+        exact_slices.push_back(z);
+        lastZ = z;
+        lastArea = area;
+    }
+    std::sort(exact_slices.begin(), exact_slices.end());
+    exact_slices.erase(std::unique(exact_slices.begin(), exact_slices.end()), exact_slices.end());
 }
 
 }

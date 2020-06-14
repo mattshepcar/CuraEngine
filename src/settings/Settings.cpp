@@ -578,6 +578,16 @@ template<> std::vector<AngleDegrees> Settings::get<std::vector<AngleDegrees>>(co
     return std::vector<AngleDegrees>(values_doubles.begin(), values_doubles.end()); //Cast them to AngleDegrees.
 }
 
+template<> std::vector<coord_t> Settings::get<std::vector<coord_t>>(const std::string& key) const
+{
+    std::vector<double> values_doubles = get<std::vector<double>>(key);
+    std::vector<coord_t> values;
+    values.reserve(values_doubles.size());
+    for (auto value : values_doubles)
+        values.push_back(MM2INT(value));
+    return values;
+}
+
 const std::string Settings::getAllSettingsString() const
 {
     std::stringstream sstream;

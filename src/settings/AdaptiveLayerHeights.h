@@ -62,6 +62,16 @@ public:
     coord_t threshold;
 
     /*!
+     * List of requested slice positions.
+     */
+    std::vector<coord_t> exact_slices;
+
+    /*!
+     * Whether to create slices exactly on the flat surfaces of the mesh
+     */
+    double layers_at_flat_area_mm2;
+
+    /*!
      * Stores the found layer heights
      */
     std::vector<AdaptiveLayer> layers;
@@ -92,7 +102,7 @@ public:
      * \param threshold Threshold to compare the tangent of the steepest slope
      * to.
      */
-    AdaptiveLayerHeights(const coord_t base_layer_height, const coord_t variation, const coord_t step_size, const coord_t threshold);
+    AdaptiveLayerHeights(const coord_t base_layer_height, const coord_t variation, const coord_t step_size, const coord_t threshold, const std::vector<coord_t>& exact_slices, const double layers_at_flat_area_mm2);
 
 private:
 
@@ -100,8 +110,9 @@ private:
      * Stores the found slopes of each face using the same index.
      */
     std::vector<double> face_slopes;
-    std::vector<int> face_min_z_values;
-    std::vector<int> face_max_z_values;
+    std::vector<coord_t> face_min_z_values;
+    std::vector<coord_t> face_max_z_values;
+    coord_t global_max_z;
 
     /*!
      * Calculate the allowed layer heights depending on variation and step input

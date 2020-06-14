@@ -1723,7 +1723,7 @@ void LayerPlan::writeGCode(GCodeExport& gcode)
                     for(unsigned int point_idx = 0; point_idx < path.points.size(); point_idx++)
                     {
                         communication->sendLineTo(path.config->type, path.points[point_idx], path.getLineWidthForLayerView(), path.config->getLayerThickness(), speed);
-                        gcode.setZ(path.heights[point_idx]);
+                        //gcode.setZ(path.heights[point_idx]);
                         gcode.writeExtrusion(path.points[point_idx], speed, path.getExtrusionMM3perMM(), path.config->type, update_extrusion_offset);
                     }
                 }
@@ -1931,7 +1931,7 @@ bool LayerPlan::writePathWithCoasting(GCodeExport& gcode, const size_t extruder_
         for(size_t point_idx = 0; point_idx <= point_idx_before_start; point_idx++)
         {
             communication->sendLineTo(path.config->type, path.points[point_idx], path.getLineWidthForLayerView(), path.config->getLayerThickness(), extrude_speed);
-            gcode.setZ(path.heights[point_idx]);
+            //gcode.setZ(path.heights[point_idx]);
             gcode.writeExtrusion(path.points[point_idx], extrude_speed, path.getExtrusionMM3perMM(), path.config->type);
         }
         communication->sendLineTo(path.config->type, start, path.getLineWidthForLayerView(), path.config->getLayerThickness(), extrude_speed);
@@ -1943,7 +1943,7 @@ bool LayerPlan::writePathWithCoasting(GCodeExport& gcode, const size_t extruder_
     {
         const Ratio coasting_speed_modifier = extruder.settings.get<Ratio>("coasting_speed");
         const Velocity speed = Velocity(coasting_speed_modifier * path.config->getSpeed() * extruder_plan.getExtrudeSpeedFactor());
-        gcode.setZ(path.heights[point_idx]);
+        //gcode.setZ(path.heights[point_idx]);
         gcode.writeTravel(path.points[point_idx], speed);
     }
     return true;
